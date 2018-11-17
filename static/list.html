@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Document</title>
+    <script src="base.js"></script>
+    <script src="js/vue.js"></script>
+</head>
+
+<body>
+    <div id="root">
+        <pre style="font-size: 20px"> {{dataList}}<pre> 
+       
+    </div>
+    <script>
+        new Vue({
+            el: "#root",
+            data: {
+                dataList: ''
+            },
+            created() {
+                let socket = new WebSocket(websocketUrl)
+                socket.onmessage = (data) => {
+                    let info = JSON.parse(data.data);
+                    switch (info.type) {
+                        case 9:
+                            this.dataList = info.msg
+                            break;
+                    }
+                    console.log(data)
+                }
+                socket.onopen = (data) => {
+                    let sendData = {};
+                    sendData = {
+                        req: 9,
+                        msg: '我要已完成的链接'
+                    }
+                    socket.send(JSON.stringify(sendData))
+                    console.log('链接成功')
+                }
+                socket.onclose = () => {
+                    console.log('链接关闭')
+                }
+                this.ws = socket;
+            },
+        })
+    </script>
+</body>
+
+</html>

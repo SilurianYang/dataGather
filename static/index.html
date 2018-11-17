@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="UTF-8">
+	<title>操作页面</title>
+	<meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no" />
+	<script src="base.js"></script>
+	<script src="js/vue.js"></script>
+	<script src="js/jquery.js"></script>
+	<link href="css/bootstrap.css" rel="stylesheet">
+	<link rel="stylesheet" href="js/layui/css/modules/layer/default/layer.css">
+	<script src="js/layui/lay/modules/layer.js"></script>
+	<script src="js/layui/layui.all.js"></script>
+	<script src="js/reconnecting-websocket.min.js"></script>
+	<link href="js/layui/css/layui.css" rel="stylesheet">
+	<link rel="stylesheet" href="css/index.css" />
+</head>
+
+<body>
+	<div id="root" class="row">
+		<div class="col-md-7 col-xs-7 col-sm-7 col-lg-7">
+			<form>
+				<div class="form-group">
+					<label for="exampleInputEmail1">请输入需要搜索的关键字或者导入关键字</label>
+					<div style="margin-left: 20px;margin-bottom: 20px;">
+						<input type="file" name="" id="myFile" accept="text/plain" @change="inputChange($event)">
+						<span style="color: #f00">*重要提示：当前只能导入txt文件。一行表示一个关键</span>
+					</div>
+					<!-- <textarea class="form-control" rows="4" v-model.trim="Keyword"></textarea> -->
+					<div>
+						<span v-text="`当前关键字：${Keyword === '' ? 0 : Keyword.split('#').length}个`"></span>
+						<button style="margin: 0 5px;" class="default" type="button" @click="handle_keyword(1)">查看</button>
+						<button class="default" type="button" @click="handle_keyword(2)">添加</button>
+					</div>
+				</div>
+				<div class="form-group">
+					<label for="exampleInputEmail1">请选择搜索引擎</label>
+					<select class="form-control" v-model="engine">
+						<option value="0">百度</option>
+						<option value="1">搜狗</option>
+						<option value="2">Bing</option>
+						<option value="3">360搜索</option>
+					</select>
+				</div>
+				<div class="form-group">
+					<label for="exampleInputEmail1">请设置搜索引擎配置</label>
+					<div class="form-group">
+						<label for="exampleInputName2">爬取页数</label>
+						<input type="number" class="form-control" id="exampleInputName2" placeholder="请输入爬取页数" v-model="pages">
+					</div>
+					<div class="form-group">
+						<label for="exampleInputName2">保留数据层级链接</label>
+						<div class="checkbox">
+							<label>
+								<input type="checkbox" value="1" v-model="checkedNames">
+								1级链接
+							</label>
+						</div>
+						<div class="checkbox">
+							<label>
+								<input type="checkbox" value="2" v-model="checkedNames">
+								2级链接
+							</label>
+						</div>
+						<div class="checkbox">
+							<label>
+								<input type="checkbox" value="3" v-model="checkedNames">
+								3级链接
+							</label>
+						</div>
+					</div>
+				</div>
+
+				<div class="form-group">
+					<label for="exampleInputEmail1">请输入完整的白名单网址，多个用”#“隔开。例如：https://www.baidu.com</label>
+					<!-- <textarea class="form-control" rows="4" v-model.trim="address"></textarea> -->
+					<div style="margin: 5px 0;">
+						<span v-text="`当前白名单：${address === '' ? 0 : address.split('#').length}个`"></span>
+						<button style="margin: 0 5px;" class="default" type="button" @click="handle_whitelist(1)">查看</button>
+						<button class="default" type="button" @click="handle_whitelist(2)">添加</button>
+					</div>
+				</div>
+				<button type="button" class="btn btn-default" @click="saveData()" :class="{'saveDataBtn':saveDataBtn}">保存配置</button>
+				<button type="button" class="btn btn-default" @click="runOrStop" v-if="!puppeteerStatus">运行</button>
+				<button type="button" class="btn btn-default" @click="runOrStop" v-else>关闭</button>
+				<button type="button" class="btn btn-default" @click="matchSelect" :class="{'saveDataBtn':saveDataBtn}">筛选所有网址</button>
+			</form>
+
+		</div>
+		<div class="col-md-5 col-xs-5 col-sm-5 col-lg-5">
+				<div class="form-group finish_list" style="position: relative;">
+				<label for="exampleInputEmail1" style="height: 5vh;">{{serverMsg}}</label>
+			</div>
+			<div class="form-group finish_list" style="position: relative;">
+				<label for="exampleInputEmail1" style="height: 5vh;">已完成列表 <span style="color: #f00;">{{dataList.length}}</span> 个</label>
+				<div style="height: 90vh; overflow-y: auto">
+					<div id="loading_layer" v-show="showLoading && dataList.length <= 0">
+						<img src="js/layui/css/modules/layer/default/loading-2.gif" alt="">
+						&nbsp;正在爬取中,请稍后....
+					</div>
+					<ul class="list-group" v-show="puppeteerStatus">
+						<li class="list-group-item" v-for="(item,index) in dataList" v-if="item!=''" :key="index">{{item}}</li>
+					</ul>
+				</div>
+			</div>
+		</div>
+
+	</div>
+	<script>
+		new Vue({
+			el: "#root",
+			data: {
+				ws: null,
+				checkedNames: ["1"],
+				engine: "0",
+				pages: 5,
+				address: '',
+				Keyword: '',
+				dataList: [],
+				puppeteerStatus: false,
+				showLoading: false,
+				saveDataBtn: false,
+				serverMsg:'',
+			},
+			created() {
+
+			},
+			mounted() {
+				try {
+					this.ws.close();
+				} catch (error) {
+
+				}
+				this.ws =new ReconnectingWebSocket(websocketUrl);
+				this.ws.onopen = () => {
+					setTimeout(()=>{
+						this.ws.refresh();
+					},300000)
+					//layer.closeAll();
+					let senData = {
+						req: 3,
+						msg: '我是来获取配置信息的'
+					};
+					console.log('链接成功'); //链接成功后获取配置信息到页面显示
+					this.ws.send(JSON.stringify(senData));
+				};
+				this.ws.onmessage = (data) => {
+					let serverInfo = JSON.parse(data.data);
+					switch (serverInfo.type) {
+						case 1:
+							this.dataList = serverInfo.msg
+							break;
+						case 3:
+							this.Keyword = serverInfo.msg.Keyword;
+							this.address = serverInfo.msg.address;
+							this.pages = serverInfo.msg.pages;
+							this.checkedNames = serverInfo.msg.checkedNames;
+							this.engine = serverInfo.msg.engine;
+							break;
+						case 6:
+							layer.closeAll(); //关闭所有层
+							if (serverInfo.msg.status) {
+								layer.msg('关键字上传成功', {
+									icon: 1,
+									time: 1000
+								})
+							} else {
+								layer.msg('关键字上传失败', {
+									icon: 2,
+									time: 1000
+								})
+							}
+							break;
+						case 8:
+							this.saveDataBtn = false;
+							this.puppeteerStatus = false;
+							if (typeof serverInfo.msg.hand != 'undefined') {
+								return layer.msg('关闭成功，如需运行必须重新启动可执行文件！', {
+									icon: 1
+								})
+							}
+							layer.alert('指定内容已经获取完成', {
+								icon: 1
+							})
+							break;
+							case 11:
+							this.serverMsg=serverInfo.msg
+							break;
+					}
+				}
+				this.ws.onclose = () => {
+					console.log('连接已关闭...');
+				};
+			},
+			methods: {
+				saveData(tipsText = '保存') {
+					if (this.saveDataBtn) {
+						return
+					}
+					let senData = {};
+					senData['checkedNames'] = this.checkedNames;
+					senData['engine'] = this.engine;
+					senData['pages'] = this.pages;
+					senData['address'] = this.address;
+					senData['Keyword'] = this.Keyword;
+					$.ajax({
+						url: `${requestUrl}/saveData`,
+						type: "post",
+						data: senData,
+						success: (data) => {
+							layer.msg(tipsText + '成功', {
+								icon: 1,
+								time: 1500
+							})
+						},
+						error: () => {
+							layer.msg(tipsText + '失败', {
+								icon: 2,
+								time: 1500
+							})
+						}
+					})
+				},
+				async runOrStop() {
+					let runConfig = {};
+					if (!this.puppeteerStatus) {
+						this.showLoading = true;
+						runConfig = {
+							req: 7,
+							msg: '启动爬虫'
+						}
+						this.dataList = [];
+						this.saveDataBtn = true;
+					} else {
+						let promise = async () => {
+							return new Promise((resolve) => {
+								layer.confirm('您确定要关闭程序，当前程序正在运转中，关闭后将会释放内存。网址和服务器讲断开链接。无法再次启动，如需再次启动必须手动点击文件夹中的可执行文件。', {
+									btn: ['确定', '取消', ],
+								}, (index, layero) => {
+									layer.close(index)
+									resolve(true);
+								}, (index) => {
+									resolve(false);
+								});
+							})
+						}
+						let p_Status = await promise();
+						if (!p_Status) {
+							return
+						}
+						this.saveDataBtn = false;
+						this.showLoading = false;
+						runConfig = {
+							req: 8,
+							msg: '停止爬虫'
+						}
+					}
+					this.puppeteerStatus = !this.puppeteerStatus;
+					this.ws.send(JSON.stringify(runConfig));
+				},
+				/**
+				 * 进入赛选网址
+				 */
+				matchSelect() {
+					if (this.saveDataBtn) {
+						// layer.msg('当前程序正在运行中，请先停止后进入赛选页面', {
+						// 	time: 2000,
+						// });
+						return
+
+					}
+					layer.open({
+						type: 2,
+						shade: 0.1,
+						area: ['80%', '80%'],
+						maxmin: true,
+						content: 'views.html',
+						zIndex: 9999,
+						success: (layero) => {
+							layer.setTop(layero); //重点2
+						},
+						end: () => {
+							let sendData = {
+								msg: '关闭爬虫',
+								req: 8
+							};
+							this.ws.send(JSON.stringify(sendData))
+						}
+					});
+				},
+				/**
+				 * 文件输入框值放生改变的时候
+				 */
+				inputChange(el) {
+					layer.msg('正常读取并上传', {
+						icon: 16,
+						time: false,
+						success: (layerEl, index) => {
+							let file = el.currentTarget.files[0];
+							let reg = /.txt$/;
+							if (!reg.test(file.name)) {
+								layer.close(index)
+								return layer.msg('上传的文件必须是txt文件', {
+									icon: 2,
+									time: 1000
+								})
+							}
+							let fileRader = new FileReader();
+							fileRader.onload = (data) => {
+								let result = data.currentTarget.result;
+								if (result.trim() === '') {
+									layer.close(index)
+									return layer.msg('当前文件的内容没有可用的，检查后再试', {
+										icon: 2,
+										time: 1000
+									})
+								}
+								result=result.trim().split('\r\n').join('#');
+								let sendData = {
+									req: 6,
+									msg: result
+								}
+								if(this.Keyword==''){
+									this.Keyword =result;
+								}else{
+									this.Keyword = this.Keyword + `#${result}`;
+								}
+								this.ws.send(JSON.stringify(sendData));
+							}
+							fileRader.onerror = (data) => {
+								layer.msg('文件读取失败，重新上传试试', {
+									icon: 2,
+									time: 1000
+								})
+							}
+							fileRader.readAsText(file);
+						}
+					})
+				},
+				/**
+				 * 关键字操作
+				 */
+				handle_keyword(flag) {
+					let _this = this;
+					switch (flag) {
+						case 1:
+							layer.open({
+								type: 1,
+								title: '查看关键字',
+								area: ['600px', '620px'],
+								content: `
+									<div style="padding: 10px;">
+										<button id="add_keyword_btn" class="layui-btn layui-btn-normal">新增</button>
+										<div>
+											<table class="layui-table" id="keyword_table">
+												<colgroup>
+													<col width="100">
+													<col width="auto">
+													<col width="100">
+												</colgroup>
+												<thead>
+													<tr>
+														<th>序号</th>
+														<th>关键字</th>
+														<th>操作</th>
+													</tr>
+												</thead>
+												<tbody>
+												</tbody>
+											</table>
+											<div id="keyword_page"></div>
+										</div>
+									</div>
+								`,
+								success() {
+									// 当前页
+									let page = 1;
+
+									// 点击新增按钮
+									$('#add_keyword_btn').on('click', () => {
+										layer.open({
+											type: 1,
+											type: 1,
+											title: '添加关键字',
+											area: ['400px', '190px'],
+											btn: ['确认'],
+											content: `
+												<div style="padding: 25px 20px;">
+													<input type="text" class="form-control" id="add_keyword" placeholder="请输入关键字">
+												</div>
+											`,
+											btn1(index) {
+												let val = $('#add_keyword').val().trim();
+												if (val === '') {
+													layer.msg('关键词不能为空，请重新输入！', {
+														icon: 2,
+														time: 1500
+													});
+													return;
+												}
+
+												if (_this.Keyword.split('#').includes(val)) {
+													layer.msg('关键词重复，请重新输入！', {
+														icon: 2,
+														time: 1500
+													});
+												} else {
+													_this.Keyword += (_this.Keyword === '' ? '' : '#') + val
+													_this.saveData('保存')
+													layer.close(index);
+												}
+											},
+											end() {
+												initPage();
+												renderData();
+											}
+										})
+									})
+
+									// 使用分页
+									function initPage() {
+										let arrData = _this.Keyword === '' ? [] : _this.Keyword.split('#');
+										layui.use('laypage', function () {
+											var laypage = layui.laypage;
+
+											//执行一个laypage实例
+											laypage.render({
+												elem: 'keyword_page' //注意，这里的 test1 是 ID，不用加 # 号
+													,
+												count: arrData.length //数据总数，从服务端得到
+													,
+												curr: page,
+												jump: function (obj, first) {
+													if (!first) {
+														page = obj.curr
+														renderData();
+													}
+												}
+											});
+										});
+									};
+									initPage();
+
+									// 渲染数据
+									function renderData() {
+										let arrData = _this.Keyword === '' ? [] : _this.Keyword.split('#');
+										let keyword_html = '';
+										let start = (page - 1) * 10,
+											end = page * 10;
+										$(arrData.slice(start, end)).each((index, item) => {
+											keyword_html +=
+												`<tr><td>${page === 1 ? '' : page-1}${index+1}</td><td>${item}</td><td><span class="cp red delete_keyword" data-text="${item}">删除</span></td></tr>`
+										})
+										if (keyword_html !== '') {
+											$('#keyword_table tbody').html(keyword_html)
+										}
+									}
+									renderData();
+
+
+									// 删除
+									$('#keyword_table').on('click', '.delete_keyword', function () {
+										let delText = '' + $(this).data('text');
+										let arr = _this.Keyword.split('#').filter((item, index) => {
+											return item !== delText
+										})
+										_this.Keyword = arr.join('#');
+										$(this).parents('tr').remove();
+										_this.saveData('删除')
+										let arrData = _this.Keyword === '' ? [] : _this.Keyword.split('#');
+										if ($('#keyword_table tbody tr').length <= 0 && arrData.length <= 0) {
+											$('#keyword_table tbody').html(
+												`<tr>
+												<td style="text-align: center;" colspan="3">暂无关键字，请添加关键字</td>
+											</tr>`)
+										}
+										if ($('#keyword_table tbody tr').length <= 0 && arrData.length > 0) {
+											page--;
+										}
+										initPage();
+										renderData();
+									})
+
+									// 默认进来的样子
+									let arrData = _this.Keyword === '' ? [] : _this.Keyword.split('#');
+									if (_this.Keyword === '' && arrData.length <= 0) {
+										$('#keyword_table tbody').html(
+											`<tr>
+											<td style="text-align: center;" colspan="3">暂无关键字，请添加关键字</td>
+										</tr>`)
+									} else {
+										renderData();
+									}
+								},
+							})
+
+							break;
+						case 2:
+							layer.open({
+								type: 1,
+								type: 1,
+								title: '添加关键字',
+								area: ['400px', '190px'],
+								btn: ['确认'],
+								content: `
+									<div style="padding: 25px 20px;">
+										<input type="text" class="form-control" id="add_keyword" placeholder="请输入关键字">
+									</div>
+								`,
+								btn1(index) {
+									let val = $('#add_keyword').val().trim();
+									if (val === '') {
+										layer.msg('关键词不能为空，请重新输入！', {
+											icon: 2,
+											time: 1500
+										});
+										return;
+									}
+
+									if (_this.Keyword.split('#').includes(val)) {
+										layer.msg('关键词重复，请重新输入！', {
+											icon: 2,
+											time: 1500
+										});
+									} else {
+										_this.Keyword += (_this.Keyword === '' ? '' : '#') + val
+										_this.saveData('保存')
+										layer.close(index);
+									}
+								}
+							})
+							break;
+					}
+				},
+
+				/**
+				 * 白名单操作
+				 */
+				handle_whitelist(flag) {
+					let _this = this;
+					switch (flag) {
+						case 1:
+							layer.open({
+								type: 1,
+								title: '查看白名单网址',
+								area: ['600px', '620px'],
+								content: `
+									<div style="padding: 10px;">
+										<button id="add_address_btn" class="layui-btn layui-btn-normal">新增</button>
+										<div>
+											<table class="layui-table" id="address_table">
+												<colgroup>
+													<col width="100">
+													<col width="auto">
+													<col width="100">
+												</colgroup>
+												<thead>
+													<tr>
+														<th>序号</th>
+														<th>白名单网址</th>
+														<th>操作</th>
+													</tr>
+												</thead>
+												<tbody>
+												</tbody>
+											</table>
+											<div id="address_page"></div>
+										</div>
+									</div>
+								`,
+								success() {
+									// 当前页
+									let page = 1;
+
+									// 点击新增按钮
+									$('#add_address_btn').on('click', () => {
+										layer.open({
+											type: 1,
+											type: 1,
+											title: '添加白名单网址',
+											area: ['500px', '190px'],
+											btn: ['确认'],
+											content: `
+												<div style="padding: 25px 20px;">
+													<input type="text" class="form-control" id="add_address" placeholder="请输入白名单网址">
+												</div>
+											`,
+											btn1(index) {
+												let val = $('#add_address').val().trim();
+												if (val === '') {
+													layer.msg('白名单网址不能为空，请重新输入！', {
+														icon: 2,
+														time: 1500
+													});
+													return;
+												}
+
+												if (_this.address.split('#').includes(val)) {
+													layer.msg('白名单网址重复，请重新输入！', {
+														icon: 2,
+														time: 1500
+													});
+												} else {
+													_this.address += (_this.address === '' ? '' : '#') + val
+													_this.saveData('保存')
+													layer.close(index);
+												}
+											},
+											end() {
+												initPage();
+												renderData();
+											}
+										})
+									})
+
+									// 使用分页
+									function initPage() {
+										let arrData = _this.address === '' ? [] : _this.address.split('#');
+										layui.use('laypage', function () {
+											var laypage = layui.laypage;
+
+											//执行一个laypage实例
+											laypage.render({
+												elem: 'address_page' //注意，这里的 test1 是 ID，不用加 # 号
+													,
+												count: arrData.length //数据总数，从服务端得到
+													,
+												curr: page,
+												jump: function (obj, first) {
+													if (!first) {
+														page = obj.curr
+														renderData();
+													}
+												}
+											});
+										});
+									};
+									initPage();
+
+									// 渲染数据
+									function renderData() {
+										let arrData = _this.address === '' ? [] : _this.address.split('#');
+										let address_html = '';
+										let start = (page - 1) * 10,
+											end = page * 10;
+										$(arrData.slice(start, end)).each((index, item) => {
+											address_html +=
+												`<tr><td>${page === 1 ? '' : page-1}${index+1}</td><td>${item}</td><td><span class="cp red delete_address" data-text="${item}">删除</span></td></tr>`
+										})
+										if (address_html !== '') {
+											$('#address_table tbody').html(address_html)
+										}
+									}
+									renderData();
+
+
+									// 删除
+									$('#address_table').on('click', '.delete_address', function () {
+										let delText = '' + $(this).data('text');
+										let arr = _this.address.split('#').filter((item, index) => {
+											return item !== delText
+										})
+										_this.address = arr.join('#');
+										$(this).parents('tr').remove();
+										_this.saveData('删除')
+										let arrData = _this.address === '' ? [] : _this.address.split('#');
+										if ($('#address_table tbody tr').length <= 0 && arrData.length <= 0) {
+											$('#address_table tbody').html(
+												`<tr>
+												<td style="text-align: center;" colspan="3">暂无白名单网址，请添加白名单网址</td>
+											</tr>`
+											)
+										}
+										if ($('#address_table tbody tr').length <= 0 && arrData.length > 0) {
+											page--;
+										}
+										initPage();
+										renderData();
+									})
+
+									// 默认进来的样子
+									let arrData = _this.address === '' ? [] : _this.address.split('#');
+									if (_this.address === '' && arrData.length <= 0) {
+										$('#address_table tbody').html(
+											`<tr>
+											<td style="text-align: center;" colspan="3">暂无白名单网址，请添加白名单网址</td>
+										</tr>`)
+									} else {
+										renderData();
+									}
+								},
+							})
+
+							break;
+						case 2:
+							layer.open({
+								type: 1,
+								type: 1,
+								title: '添加白名单',
+								area: ['500px', '190px'],
+								btn: ['确认'],
+								content: `
+									<div style="padding: 25px 20px;">
+										<input type="text" class="form-control" id="add_address" placeholder="请输入白名单网址">
+									</div>
+								`,
+								btn1(index) {
+									let val = $('#add_address').val().trim();
+									if (val === '') {
+										layer.msg('白名单网址不能为空，请重新输入！', {
+											icon: 2,
+											time: 1500
+										});
+										return;
+									}
+
+									if (_this.address.split('#').includes(val)) {
+										layer.msg('白名单网址重复，请重新输入！', {
+											icon: 2,
+											time: 1500
+										});
+									} else {
+										_this.address += (_this.address === '' ? '' : '#') + val
+										_this.saveData('保存')
+										layer.close(index);
+									}
+								}
+							})
+							break;
+					}
+				}
+			}
+		})
+	</script>
+</body>
+
+</html>
+<!-- 当前关键字: 多少个 -->

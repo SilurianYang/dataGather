@@ -1,0 +1,46 @@
+* {
+	padding: 0;
+	margin: 0;
+}
+
+p {
+	color: #f00;
+}
+
+#root {
+	overflow: hidden;
+}
+
+.list-group-item {
+	padding: 0.3rem 1.25rem
+}
+
+button.default {
+	padding: 0 5px;
+}
+
+.cp {
+	cursor: pointer;
+}
+
+.red {
+	color: red;
+}
+
+#loading_layer {
+	padding: 15px 15px 15px 20px;
+	text-align: left;
+	border: 1px solid #ccc;
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	background-color: #fff;
+}
+
+.saveDataBtn {
+	cursor: no-drop !important;
+	background-color: rgba(204, 204, 204, 0.2) !important;
+	color: rgba(204, 204, 204, 0.8) !important;
+	box-shadow: none !important;
+}
